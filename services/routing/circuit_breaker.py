@@ -103,12 +103,18 @@ class CircuitBreaker:
         )
         return CircuitState.HALF_OPEN
 
-    def record_success(self, provider: str, capability: str) -> None:
-        """记录成功调用并关闭熔断器。
+    def record_success(
+        self,
+        provider: str,
+        capability: str,
+        admission_state: CircuitState,
+    ) -> None:
+        """记录成功调用，并仅由有效的半开探测关闭熔断器。
 
         参数：
             provider: 成功调用的服务商名称。
             capability: 成功调用的能力名称。
+            admission_state: 本次调用在执行前获得的熔断准入状态。
 
         返回值：
             无。
@@ -116,6 +122,17 @@ class CircuitBreaker:
         if not self._store.available:
             return
         snapshot = self.snapshot(provider, capability)
+        if snapshot.state != admission_state:
+            logger.debug(
+                "circuit.success.stale_ignored: %s",
+                {
+                    "provider": provider,
+                    "capability": capability,
+                    "admissionState": admission_state,
+                    "currentState": snapshot.state,
+                },
+            )
+            return
         self._store.delete(
             self._key(provider, capability, "snapshot"),
             self._key(provider, capability, "failures"),

@@ -16,7 +16,11 @@ from services.notifications import FeishuAlertNotifier, RoutingEventReporter
 from services.providers.factory import build_provider_clients
 from services.domain.requests import GenerateImageRequest, UnderstandImageRequest
 from services.settings import AppSettings
-from services.routing.circuit_breaker import CircuitBreaker, CircuitOpenError
+from services.routing.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+)
 from services.state import build_state_store
 
 logger = logging.getLogger(__name__)
@@ -262,9 +266,12 @@ class FailoverRouter:
                 str(errors[-1].category) if provider_index > 0 and errors else ""
             )
 
+            circuit_admission_state = CircuitState.CLOSED
             if self._circuit_breaker:
                 try:
-                    self._circuit_breaker.before_call(provider_name, capability)
+                    circuit_admission_state = self._circuit_breaker.before_call(
+                        provider_name, capability
+                    )
                 except CircuitOpenError as error:
                     errors.append(error)
                     attempts.append(
@@ -377,7 +384,9 @@ class FailoverRouter:
                     )
                     if self._circuit_breaker:
                         self._circuit_breaker.record_success(
-                            provider_name, capability
+                            provider_name,
+                            capability,
+                            circuit_admission_state,
                         )
                     if self._event_reporter:
                         if provider_index == 0:

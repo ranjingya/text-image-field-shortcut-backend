@@ -79,7 +79,9 @@ class CircuitBreakerTestCase(unittest.TestCase):
         state = self.breaker.before_call("easyrouter", "image_generation")
         self.assertEqual(state, CircuitState.HALF_OPEN)
 
-        self.breaker.record_success("easyrouter", "image_generation")
+        self.breaker.record_success(
+            "easyrouter", "image_generation", CircuitState.HALF_OPEN
+        )
         self.assertEqual(
             self.breaker.snapshot("easyrouter", "image_generation").state,
             CircuitState.CLOSED,
@@ -144,7 +146,32 @@ class CircuitBreakerTestCase(unittest.TestCase):
         with self.assertNoLogs(
             "services.routing.circuit_breaker", level="INFO"
         ):
-            self.breaker.record_success("easyrouter", "image_generation")
+            self.breaker.record_success(
+                "easyrouter", "image_generation", CircuitState.CLOSED
+            )
+
+    def test_in_flight_success_does_not_close_newly_opened_circuit(self) -> None:
+        error = ProviderError(
+            provider="easyrouter",
+            category=ErrorCategory.RATE_LIMIT,
+            message="limited",
+            retryable=True,
+        )
+        admission_state = self.breaker.before_call(
+            "easyrouter", "image_generation"
+        )
+        self.breaker.record_failure("easyrouter", "image_generation", error)
+        self.breaker.record_failure("easyrouter", "image_generation", error)
+
+        self.breaker.record_success(
+            "easyrouter", "image_generation", admission_state
+        )
+
+        snapshot = self.breaker.snapshot(
+            "easyrouter", "image_generation"
+        )
+        self.assertEqual(snapshot.state, CircuitState.OPEN)
+        self.assertEqual(snapshot.open_until, 1_010.0)
 
 
 if __name__ == "__main__":

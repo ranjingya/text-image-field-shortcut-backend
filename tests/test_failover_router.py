@@ -92,7 +92,12 @@ class PrimaryOpenCircuitBreaker:
             raise CircuitOpenError(provider, capability, CircuitState.OPEN)
         return CircuitState.CLOSED
 
-    def record_success(self, provider: str, capability: str) -> None:
+    def record_success(
+        self,
+        provider: str,
+        capability: str,
+        admission_state: CircuitState,
+    ) -> None:
         return None
 
     def record_failure(
