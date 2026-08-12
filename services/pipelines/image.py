@@ -7,8 +7,7 @@ from dataclasses import dataclass, field, replace
 
 from services.domain.requests import GenerateImageRequest, RequestValidationError
 from services.generation_gate import GenerationGate, get_generation_gate
-from services.http import build_asset_fetcher
-from services.oss_service import upload_asset_to_oss
+from services.oss_service import resolve_asset_bytes, upload_asset_to_oss
 from services.reference_images import stage_reference_images
 from services.response_normalizer import NormalizedGeneratedAsset
 from services.routing import FailoverRouter, build_failover_router
@@ -378,18 +377,6 @@ class GeneratedImageFile:
     )
 
 
-def _resolve_asset_bytes(
-    asset: NormalizedGeneratedAsset, settings: AppSettings
-) -> bytes:
-    if asset.source_kind == "bytes":
-        return (
-            asset.payload if isinstance(asset.payload, bytes) else bytes(asset.payload)
-        )
-    if asset.source_kind == "url":
-        return build_asset_fetcher(settings).fetch(str(asset.payload)).body
-    return str(asset.payload).encode("utf-8")
-
-
 def generate_image_only(request_data: GenerateImageRequest) -> GeneratedImageFile:
     """生成图片并直接返回文件数据。
 
@@ -423,7 +410,7 @@ def generate_image_only(request_data: GenerateImageRequest) -> GeneratedImageFil
         provider_result = route_result.provider_result
         asset = provider_result.result.assets[0]
         return GeneratedImageFile(
-            data=_resolve_asset_bytes(asset, settings),
+            data=resolve_asset_bytes(settings, asset),
             mime_type=asset.mime_type,
             file_name=asset.file_name,
             model=provider_result.public_model,

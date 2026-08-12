@@ -239,7 +239,16 @@ def _resolve_file_name(asset: NormalizedGeneratedAsset) -> str:
     return build_datetime_file_name(suffix)
 
 
-def _resolve_asset_bytes(settings: AppSettings, asset: NormalizedGeneratedAsset) -> bytes:
+def resolve_asset_bytes(settings: AppSettings, asset: NormalizedGeneratedAsset) -> bytes:
+    """读取标准图片资源并返回可传输的图片字节。
+
+    参数：
+        settings: 包含远程资源下载限制的应用配置。
+        asset: 服务商响应归一化后的图片资源。
+
+    返回值：
+        可直接响应客户端或上传 OSS 的图片字节。
+    """
     if asset.source_kind == "bytes":
         body = asset.payload if isinstance(asset.payload, bytes) else bytes(asset.payload)
         return body
@@ -254,7 +263,7 @@ def _resolve_asset_bytes(settings: AppSettings, asset: NormalizedGeneratedAsset)
 def upload_asset_to_oss(settings: AppSettings, asset: NormalizedGeneratedAsset) -> OssUploadResult:
     file_name = _resolve_file_name(asset)
     object_key = build_object_key(settings.oss.bucket_prefix, file_name)
-    body = _resolve_asset_bytes(settings, asset)
+    body = resolve_asset_bytes(settings, asset)
 
     logger.debug(
         "gemini.backend.oss.upload.start: %s",
