@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -56,6 +57,32 @@ class ProviderError(RuntimeError):
             response_bytes=self.response_bytes,
             counts_toward_circuit=self.counts_toward_circuit,
         )
+
+
+def sanitize_provider_error_message(value: Any, max_length: int = 1000) -> str:
+    """压缩服务商错误消息并清理其中的远程 URL 和 Data URL。
+
+    参数：
+        value: 服务商返回的原始错误消息。
+        max_length: 脱敏后允许保留的最大字符数。
+
+    返回值：
+        已完成空白压缩、敏感地址替换和限长的错误摘要。
+    """
+    normalized = " ".join(str(value or "").split())
+    without_data_urls = re.sub(
+        r"data:[^;\s,]+;base64,[A-Za-z0-9+/=_-]+",
+        "<data-url>",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"https?://[^\s\"'<>]+",
+        "<url>",
+        without_data_urls,
+        flags=re.IGNORECASE,
+    )
+    return redacted[:max_length]
 
 
 def _read_retry_after(headers: Any) -> float | None:
@@ -123,7 +150,7 @@ def provider_error_from_status(
     return ProviderError(
         provider=provider,
         category=category,
-        message=message,
+        message=sanitize_provider_error_message(message),
         status_code=status_code,
         retryable=retryable,
         retry_after_seconds=_read_retry_after(headers or {}),

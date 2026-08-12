@@ -2,25 +2,34 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, TypeVar
+from typing import TypeVar
 
-from services.domain.errors import ErrorCategory, ProviderError
+from services.domain.errors import (
+    ErrorCategory,
+    ProviderError,
+    sanitize_provider_error_message,
+)
 from services.domain.provider import (
     ImageProviderResult,
     ProviderClient,
     TextProviderResult,
 )
-from services.model_registry import ModelRegistry, ModelRegistryError, load_model_registry
+from services.domain.requests import GenerateImageRequest, UnderstandImageRequest
+from services.model_registry import (
+    ModelRegistry,
+    ModelRegistryError,
+    load_model_registry,
+)
 from services.notifications import FeishuAlertNotifier, RoutingEventReporter
 from services.providers.factory import build_provider_clients
-from services.domain.requests import GenerateImageRequest, UnderstandImageRequest
-from services.settings import AppSettings
 from services.routing.circuit_breaker import (
     CircuitBreaker,
     CircuitOpenError,
     CircuitState,
 )
+from services.settings import AppSettings
 from services.state import build_state_store
 
 logger = logging.getLogger(__name__)
@@ -166,9 +175,11 @@ class FailoverRouter:
             public_model=public_model,
             deadline=resolved_deadline,
             invoke=invoke,
-            is_empty=lambda item: not any(
-                asset.asset_type in {"binary_file", "image_base64", "image_url"}
-                for asset in item.result.assets
+            is_empty=lambda item: (
+                not any(
+                    asset.asset_type in {"binary_file", "image_base64", "image_url"}
+                    for asset in item.result.assets
+                )
             ),
             attempts=attempts,
             errors=errors,
@@ -260,7 +271,9 @@ class FailoverRouter:
                 )
                 continue
 
-            if provider_index > 0 and not self._registry.supports(public_model, capability):
+            if provider_index > 0 and not self._registry.supports(
+                public_model, capability
+            ):
                 continue
             fallback_trigger_category = (
                 str(errors[-1].category) if provider_index > 0 and errors else ""
@@ -435,7 +448,7 @@ class FailoverRouter:
                             else ""
                         ),
                         "providerRequestId": error.request_id,
-                        "message": " ".join(str(error).split())[:300],
+                        "message": sanitize_provider_error_message(error, 300),
                     }
                     if error.response_bytes is not None:
                         failure_log["responseBytes"] = error.response_bytes

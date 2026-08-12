@@ -5,7 +5,6 @@ import binascii
 import json
 import logging
 import mimetypes
-import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,12 +18,18 @@ from services.domain.errors import (
     ProviderError,
     provider_error_from_httpx,
     provider_error_from_status,
+    sanitize_provider_error_message,
 )
-from services.http import AssetFetcher, build_asset_fetcher, build_request_timeout, get_http_client
 from services.domain.requests import (
     GenerateImageRequest,
     ReferenceImageInfo,
     UnderstandImageRequest,
+)
+from services.http import (
+    AssetFetcher,
+    build_asset_fetcher,
+    build_request_timeout,
+    get_http_client,
 )
 from services.settings import AppSettings, HttpClientSettings
 
@@ -34,18 +39,6 @@ GEMINI_MODEL_ALIASES = {
     "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
     "gemini-3-pro-image-preview": "gemini-3-pro-image",
 }
-
-
-def _sanitize_provider_error_message(value: Any) -> str:
-    """压缩服务商错误消息并移除其中可能包含签名参数的 URL。"""
-    normalized = " ".join(str(value or "").split())
-    redacted = re.sub(
-        r"https?://[^\s\"'<>]+",
-        "<url>",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    return redacted[:1000]
 
 
 def _parse_gemini_error_payload(
@@ -64,8 +57,8 @@ def _parse_gemini_error_payload(
     fallback_message = f"Gemini HTTP {status_code}"
     try:
         payload = json.loads(response_body)
-    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
-        message = _sanitize_provider_error_message(
+    except json.JSONDecodeError, UnicodeDecodeError, TypeError:
+        message = sanitize_provider_error_message(
             response_body.decode("utf-8", errors="replace")
         )
         return "", message or fallback_message
@@ -76,9 +69,7 @@ def _parse_gemini_error_payload(
     if isinstance(error, dict):
         metadata = error.get("metadata")
         metadata_error_type = (
-            metadata.get("error_type")
-            if isinstance(metadata, dict)
-            else ""
+            metadata.get("error_type") if isinstance(metadata, dict) else ""
         )
         error_type = str(
             metadata_error_type
@@ -88,14 +79,14 @@ def _parse_gemini_error_payload(
             or payload.get("error_type")
             or ""
         )
-        message = _sanitize_provider_error_message(
+        message = sanitize_provider_error_message(
             error.get("message")
             or error.get("detail")
             or payload.get("message")
             or fallback_message
         )
         return error_type, message
-    message = _sanitize_provider_error_message(error or payload.get("message"))
+    message = sanitize_provider_error_message(error or payload.get("message"))
     return "", message or fallback_message
 
 
@@ -158,7 +149,10 @@ def _decode_data_url(value: str) -> tuple[str, bytes] | None:
     if not separator or not prefix.startswith("data:") or ";base64" not in prefix:
         return None
 
-    mime_type = prefix.removeprefix("data:").split(";", 1)[0].strip() or "application/octet-stream"
+    mime_type = (
+        prefix.removeprefix("data:").split(";", 1)[0].strip()
+        or "application/octet-stream"
+    )
     return mime_type, base64.b64decode(encoded)
 
 
@@ -209,7 +203,9 @@ class GeminiInvocationPlan:
                 parts_preview.append(
                     {
                         "inline_data": {
-                            "mime_type": inline_data.get("mime_type", "application/octet-stream"),
+                            "mime_type": inline_data.get(
+                                "mime_type", "application/octet-stream"
+                            ),
                             "data": "<base64>",
                         }
                     }
@@ -281,7 +277,9 @@ def _build_endpoint(api_url: str, api_path: str) -> str:
     return f"{base_url}{api_path if not base_url.endswith('/v1') else api_path.removeprefix('/v1')}"
 
 
-def _read_url_as_inline_input(file_url: str, asset_fetcher: AssetFetcher) -> PreparedReferenceInput:
+def _read_url_as_inline_input(
+    file_url: str, asset_fetcher: AssetFetcher
+) -> PreparedReferenceInput:
     try:
         decoded_data_url = _decode_data_url(file_url)
     except (binascii.Error, ValueError) as exc:
@@ -325,7 +323,9 @@ def _read_url_as_inline_input(file_url: str, asset_fetcher: AssetFetcher) -> Pre
         ) from exc
 
     mime_type = response_mime_type or _guess_mime_type(fallback_name)
-    file_name = _safe_file_name(fallback_name, f"reference{mimetypes.guess_extension(mime_type) or '.bin'}")
+    file_name = _safe_file_name(
+        fallback_name, f"reference{mimetypes.guess_extension(mime_type) or '.bin'}"
+    )
     return PreparedReferenceInput(
         source_type="url",
         mime_type=mime_type,
@@ -338,7 +338,9 @@ def _read_url_as_inline_input(file_url: str, asset_fetcher: AssetFetcher) -> Pre
 def _prepare_url_reference_inputs(
     file_urls: list[str], asset_fetcher: AssetFetcher
 ) -> list[PreparedReferenceInput]:
-    return [_read_url_as_inline_input(file_url, asset_fetcher) for file_url in file_urls]
+    return [
+        _read_url_as_inline_input(file_url, asset_fetcher) for file_url in file_urls
+    ]
 
 
 def _build_gemini_request_body(
@@ -446,7 +448,9 @@ def build_gemini_understand_plan(
     返回值：
         包含接口地址、模型、参考图和请求体的调用计划。
     """
-    prepared_inputs = _prepare_url_reference_inputs(request_data.file_urls, build_asset_fetcher(settings))
+    prepared_inputs = _prepare_url_reference_inputs(
+        request_data.file_urls, build_asset_fetcher(settings)
+    )
     resolved_model = resolve_gemini_model_id(request_data.model, "")
     api_path = f"/v1beta/models/{resolved_model}:generateContent"
     request_body = _build_gemini_text_request_body(
@@ -602,4 +606,6 @@ def invoke_gemini(
             },
             exc_info=True,
         )
-        raise RuntimeError(f"Gemini request to {invocation_plan.api_url} failed: {exc}") from exc
+        raise RuntimeError(
+            f"Gemini request to {invocation_plan.api_url} failed: {exc}"
+        ) from exc

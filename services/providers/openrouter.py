@@ -12,6 +12,7 @@ from services.domain.errors import (
     ProviderError,
     provider_error_from_httpx,
     provider_error_from_status,
+    sanitize_provider_error_message,
 )
 from services.domain.provider import ImageProviderResult, TextProviderResult
 from services.domain.requests import (
@@ -100,7 +101,7 @@ def _parse_error_payload(response: httpx.Response) -> tuple[str, str]:
     try:
         payload = response.json()
     except json.JSONDecodeError:
-        return "", response.text[:1000]
+        return "", sanitize_provider_error_message(response.text)
     error = payload.get("error", {}) if isinstance(payload, dict) else {}
     if isinstance(error, dict):
         metadata = error.get("metadata", {})
@@ -113,8 +114,10 @@ def _parse_error_payload(response: httpx.Response) -> tuple[str, str]:
             or error.get("error_type")
             or payload.get("error_type")
             or ""
-        ), str(error.get("message") or "OpenRouter request failed.")[:1000]
-    return "", str(error or "OpenRouter request failed.")[:1000]
+        ), sanitize_provider_error_message(
+            error.get("message") or "OpenRouter request failed."
+        )
+    return "", sanitize_provider_error_message(error or "OpenRouter request failed.")
 
 
 class OpenRouterProvider:

@@ -408,6 +408,48 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         self.assertEqual(raised.exception.request_id, "or-error-request")
         self.assertFalse(raised.exception.retryable)
 
+    def test_openrouter_error_message_redacts_remote_and_data_urls(self) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": (
+                            "failed https://temp.example/image.png?token=secret "
+                            "data:image/png;base64,c2VjcmV0"
+                        )
+                    }
+                },
+            )
+        )
+        request_data = GenerateImageRequest(
+            request_id="request-redaction",
+            prompt="生成图片",
+            model="gemini-3.1-flash-image",
+            aspect_ratio=None,
+            image_size="1K",
+            input_type="empty",
+            file_urls=[],
+            files=[],
+            raw_payload={},
+        )
+
+        with httpx.Client(transport=transport) as client:
+            provider = OpenRouterProvider(
+                _build_settings(),
+                "https://openrouter.example/api/v1",
+                "openrouter-key",
+                client,
+            )
+            with self.assertRaises(ProviderError) as raised:
+                provider.generate_image(
+                    request_data,
+                    "gemini-3.1-flash-image",
+                    "google/gemini-3.1-flash-image",
+                )
+
+        self.assertEqual(str(raised.exception), "failed <url> <data-url>")
+
 
 class ProviderErrorMappingTestCase(unittest.TestCase):
     def test_pool_timeout_does_not_count_toward_circuit(self) -> None:
