@@ -21,6 +21,10 @@
 - EasyRouter 主服务商与 OpenRouter 顺序兜底
 - 可配置的同服务商重试、请求总时限和路由结果标识
 
+## 设计文档
+
+- [同场景多图生成与飞书回填方案](docs/shared-scene-generation.md)
+
 ## 配置
 
 非敏感的服务商地址、主备顺序、默认模型、模型别名、能力和服务商模型映射统一存放在 `config/providers.json`。环境变量只保存密钥、运行开关和部署参数。
