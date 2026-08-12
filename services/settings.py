@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 
 def normalize_endpoint(endpoint: str) -> str:
@@ -13,6 +14,32 @@ def endpoint_to_region(endpoint: str) -> str:
     return normalize_endpoint(endpoint).replace(".aliyuncs.com", "").removeprefix("oss-")
 
 
+def normalize_custom_domain(value: str) -> str:
+    """规范化 OSS 自定义域名，仅接受不带路径的 HTTPS 地址。"""
+    normalized = str(value or "").strip().rstrip("/")
+    if not normalized:
+        return ""
+    parsed = urlsplit(normalized)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("OSS_TEMP_CUSTOM_DOMAIN 端口格式不正确。") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or port is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "OSS_TEMP_CUSTOM_DOMAIN 必须是无路径、无端口的 HTTPS 域名。"
+        )
+    return f"https://{parsed.hostname.lower()}"
+
+
 @dataclass
 class OssSettings:
     endpoint: str
@@ -21,6 +48,7 @@ class OssSettings:
     bucket_prefix: str
     temporary_reference_prefix: str = "temp-references"
     temporary_url_ttl_seconds: int = 3600
+    temporary_custom_domain: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,6 +175,9 @@ def get_app_settings() -> AppSettings:
             ),
             temporary_url_ttl_seconds=_read_positive_int(
                 "OSS_TEMP_URL_TTL_SECONDS", 3600
+            ),
+            temporary_custom_domain=normalize_custom_domain(
+                os.getenv("OSS_TEMP_CUSTOM_DOMAIN", "")
             ),
         ),
         http=HttpSettings(

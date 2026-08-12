@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
-from services.oss_service import TemporaryReferenceStore
+from services.oss_service import (
+    TemporaryReferenceStore,
+    create_oss_cname_client,
+)
 from services.settings import AppSettings, OssSettings
 
 
@@ -41,7 +45,7 @@ class _FakeOssClient:
         return object()
 
 
-def _build_settings() -> AppSettings:
+def _build_settings(custom_domain: str = "") -> AppSettings:
     return AppSettings(
         oss=OssSettings(
             endpoint="oss-cn-hangzhou.aliyuncs.com",
@@ -50,6 +54,7 @@ def _build_settings() -> AppSettings:
             bucket_prefix="images",
             temporary_reference_prefix="temp-references",
             temporary_url_ttl_seconds=3600,
+            temporary_custom_domain=custom_domain,
         )
     )
 
@@ -80,6 +85,55 @@ class TemporaryReferenceStoreTestCase(unittest.TestCase):
         self.assertEqual(uploaded.object_key, put_request.key)
         self.assertEqual(uploaded.signed_url, _FakePresignResult.url)
         self.assertEqual(uploaded.content_length, len(b"reference"))
+
+    def test_custom_domain_client_uses_cname_addressing(self) -> None:
+        settings = _build_settings("https://temp-images.example.com")
+        cfg = type("FakeConfig", (), {})()
+        expected_client = object()
+
+        with (
+            patch(
+                "services.oss_service.oss.credentials."
+                "EnvironmentVariableCredentialsProvider",
+                return_value=object(),
+            ),
+            patch(
+                "services.oss_service.oss.config.load_default",
+                return_value=cfg,
+            ),
+            patch(
+                "services.oss_service.oss.Client",
+                return_value=expected_client,
+            ) as client_factory,
+        ):
+            client = create_oss_cname_client(settings)
+
+        self.assertIs(client, expected_client)
+        self.assertEqual(cfg.region, "cn-hangzhou")
+        self.assertEqual(cfg.endpoint, "https://temp-images.example.com")
+        self.assertTrue(cfg.use_cname)
+        client_factory.assert_called_once_with(cfg)
+
+    def test_custom_domain_store_uses_separate_presign_client(self) -> None:
+        settings = _build_settings("https://temp-images.example.com")
+        upload_client = _FakeOssClient()
+        presign_client = _FakeOssClient()
+
+        with patch(
+            "services.oss_service.create_oss_cname_client",
+            return_value=presign_client,
+        ):
+            store = TemporaryReferenceStore(settings, upload_client)
+            uploaded = store.upload(
+                b"reference",
+                "image/png",
+                uuid4().hex,
+            )
+
+        self.assertEqual(len(upload_client.put_requests), 1)
+        self.assertEqual(upload_client.presign_requests, [])
+        self.assertEqual(len(presign_client.presign_requests), 1)
+        self.assertEqual(uploaded.signed_url, _FakePresignResult.url)
 
     def test_upload_rejects_non_uuid_batch_id(self) -> None:
         client = _FakeOssClient()

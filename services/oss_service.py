@@ -75,6 +75,11 @@ class TemporaryReferenceStore:
         """
         self._settings = settings
         self._client = client or create_oss_client(settings)
+        self._presign_client = (
+            create_oss_cname_client(settings)
+            if settings.oss.temporary_custom_domain
+            else self._client
+        )
 
     def upload(
         self,
@@ -109,7 +114,7 @@ class TemporaryReferenceStore:
             )
         )
         try:
-            presigned = self._client.presign(
+            presigned = self._presign_client.presign(
                 oss.GetObjectRequest(
                     bucket=self._settings.oss.bucket_name,
                     key=object_key,
@@ -209,6 +214,27 @@ def create_oss_client(settings: AppSettings) -> oss.Client:
     cfg.credentials_provider = credentials_provider
     cfg.region = settings.oss.region
     cfg.endpoint = settings.oss.endpoint
+    return oss.Client(cfg)
+
+
+def create_oss_cname_client(settings: AppSettings) -> oss.Client:
+    """创建仅用于自定义域名签名的 OSS 客户端。
+
+    参数：
+        settings: 包含 OSS 地域、凭证来源和临时自定义域名的应用配置。
+
+    返回值：
+        使用 CNAME 寻址方式的 OSS 客户端。
+    """
+    custom_domain = settings.oss.temporary_custom_domain
+    if not custom_domain:
+        raise ValueError("OSS_TEMP_CUSTOM_DOMAIN 尚未配置。")
+    credentials_provider = oss.credentials.EnvironmentVariableCredentialsProvider()
+    cfg = oss.config.load_default()
+    cfg.credentials_provider = credentials_provider
+    cfg.region = settings.oss.region
+    cfg.endpoint = custom_domain
+    cfg.use_cname = True
     return oss.Client(cfg)
 
 
