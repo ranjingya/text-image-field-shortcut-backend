@@ -26,7 +26,6 @@ class AssetFetchError(RuntimeError):
 class FetchedAsset:
     body: bytes
     content_type: str
-    final_url: str
 
 
 def _safe_url_for_log(url: str) -> str:
@@ -165,7 +164,6 @@ class AssetFetcher:
                     return FetchedAsset(
                         body=body,
                         content_type=detected_content_type,
-                        final_url=current_url,
                     )
             except AssetFetchError:
                 raise

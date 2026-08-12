@@ -163,7 +163,6 @@ class ReferenceImageStagingTestCase(unittest.TestCase):
         fetched = FetchedAsset(
             body=b"reference-image",
             content_type="image/png",
-            final_url="https://assets.example/reference.png?token=secret",
         )
         temporary_object = TemporaryReferenceObject(
             object_key="temp-references/batch/reference.png",
@@ -224,7 +223,6 @@ class ReferenceImageStagingTestCase(unittest.TestCase):
         build_asset_fetcher.return_value.fetch.return_value = FetchedAsset(
             body=b"reference",
             content_type="image/png",
-            final_url="https://assets.example/reference.png",
         )
         temporary_reference_store.return_value.upload.return_value = (
             temporary_object
@@ -264,7 +262,6 @@ class ReferenceImageStagingTestCase(unittest.TestCase):
         build_asset_fetcher.return_value.fetch.return_value = FetchedAsset(
             body=b"reference",
             content_type="image/png",
-            final_url="https://assets.example/reference.png",
         )
         temporary_reference_store.return_value.upload.return_value = (
             temporary_object
@@ -299,12 +296,10 @@ class ReferenceImageStagingTestCase(unittest.TestCase):
             FetchedAsset(
                 body=b"reference",
                 content_type="image/png",
-                final_url="https://assets.example/reference.png",
             ),
             FetchedAsset(
                 body=b"second",
                 content_type="image/png",
-                final_url="https://assets.example/second.png",
             ),
         ]
         temporary_reference_store.return_value.upload.side_effect = [

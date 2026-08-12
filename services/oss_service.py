@@ -28,18 +28,6 @@ class OssUploadResult:
     etag: str
     request_id: str
 
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "bucketName": self.bucket_name,
-            "bucketPrefix": self.bucket_prefix,
-            "endpoint": self.endpoint,
-            "region": self.region,
-            "objectKey": self.object_key,
-            "objectUrl": self.object_url,
-            "etag": self.etag,
-            "requestId": self.request_id,
-        }
-
 
 @dataclass(frozen=True)
 class TemporaryReferenceObject:

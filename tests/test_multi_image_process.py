@@ -331,7 +331,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
         build_asset_fetcher.return_value.fetch.return_value = FetchedAsset(
             body=b"reference-image",
             content_type="image/png",
-            final_url="https://assets.example/reference.png",
         )
         temporary_object = SimpleNamespace(
             object_key="temp-references/batch/reference.png",

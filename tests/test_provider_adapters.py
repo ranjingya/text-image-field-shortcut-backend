@@ -165,7 +165,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         asset_fetcher.fetch.return_value = FetchedAsset(
             body=b"reference-image",
             content_type="image/png",
-            final_url=signed_url,
         )
 
         references = _build_input_references(request_data, asset_fetcher)
@@ -261,7 +260,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         fetched_asset = FetchedAsset(
             body=b"reference-image",
             content_type="image/png",
-            final_url="https://bucket.example/reference.png",
         )
         with (
             httpx.Client(transport=httpx.MockTransport(handler)) as client,
@@ -306,7 +304,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         build_fetcher.return_value.fetch.return_value = FetchedAsset(
             body=b"\x89PNG\r\n\x1a\nreference-image",
             content_type="image/png",
-            final_url="https://assets.example/cat.png",
         )
 
         def handler(request: httpx.Request) -> httpx.Response:
