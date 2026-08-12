@@ -1,1 +1,1 @@
-"""Service layer for the Flask demo backend."""
+"""图片生成与理解后端的业务服务层。"""

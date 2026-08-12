@@ -96,8 +96,8 @@ GPT Image 2 的 aspectRatio 到 size 映射：
 - 支持多张参考图
 - URL 和上传文件可以混用
 - 总参考图数量上限为 `14`
-- 服务端会把参考图暂存为私有 OSS 对象，并向图片生成服务商传递短期签名 URL
-- 同一批并发生成和服务商回退复用相同的临时参考图 URL
+- 服务端会把参考图暂存为私有 OSS 对象；EasyRouter 接收短期签名 URL，OpenRouter 接收后端读取临时对象后生成的 Base64 Data URL
+- 同一批并发生成和服务商回退复用相同的临时参考图对象
 - 全部模型调用结束后服务端主动删除临时对象
 
 ## 请求格式
@@ -238,7 +238,7 @@ JSON。`ossUrls` 包含全部图片地址，`ossUrl` 指向第一张图片：
 
 ### `POST /api/understand-image`
 
-图片理解：接收图片 URL，调用 Gemini 返回文本描述。
+图片理解：接收图片 URL，由后端下载并转换为 Base64 后调用 Gemini 返回文本描述。EasyRouter 和 OpenRouter 均不会收到原始图片 URL。
 
 请求体（仅 JSON）：
 

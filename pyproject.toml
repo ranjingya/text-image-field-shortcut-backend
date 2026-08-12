@@ -1,7 +1,7 @@
 [project]
 name = "text-image-field-shortcut-backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "面向飞书字段捷径的多服务商图片生成与理解后端"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
