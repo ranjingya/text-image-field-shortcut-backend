@@ -79,7 +79,7 @@ FEISHU_ALERT_KEYWORD=
 
 `MEMORY_TRIM_AFTER_IMAGE_REQUEST` 是内存回收开关，默认关闭。启用后，服务会在图片响应发送完成、生成任务与等待队列均为空且进程 RSS 达到 `MEMORY_TRIM_RSS_THRESHOLD_MB` 时，在 Linux 容器内调用 `malloc_trim(0)` 归还 glibc 保留的空闲堆页。进程通过非阻塞互斥锁避免重复回收，并按照 `MEMORY_TRIM_COOLDOWN_SECONDS` 限制回收频率。裁剪期间新的生成任务会等待状态锁释放后再调用服务商。日志 `memory.image_request.release.completed` 包含触发阈值、冷却时间与回收前后 RSS；该操作可能短暂阻塞进程。
 
-生成参考图统一上传为 `OSS_TEMP_FOLDER_PREFIX` 下的私有临时对象，通过 `OSS_TEMP_CUSTOM_DOMAIN` 生成有效期为 `OSS_TEMP_URL_TTL_SECONDS` 的 HTTPS 签名 URL，供 EasyRouter 和 OpenRouter 访问。自定义域名需要绑定至当前 Bucket、配置 CNAME 和有效 SSL 证书。`OSS_ENDPOINT` 继续用于对象上传和删除。同一批并发生成和服务商回退复用相同 URL，全部模型调用结束后服务会主动删除临时对象。OSS Bucket 需要配置一条仅匹配 `temp-references/` 的生命周期规则，在对象最后修改时间超过 1 天后删除，负责清理进程异常退出产生的残留对象。正式结果目录 `images/` 不得与临时目录重叠。
+生成参考图统一上传为 `OSS_TEMP_FOLDER_PREFIX` 下的私有临时对象，通过 `OSS_TEMP_CUSTOM_DOMAIN` 生成有效期为 `OSS_TEMP_URL_TTL_SECONDS` 的 HTTPS 签名 URL。EasyRouter 直接使用签名 URL；OpenRouter 调用时由后端读取临时对象并转换为 Base64 Data URL，不向 OpenRouter 发送远程图片 URL。自定义域名需要绑定至当前 Bucket、配置 CNAME 和有效 SSL 证书。`OSS_ENDPOINT` 继续用于对象上传和删除。同一批并发生成和服务商回退复用临时对象，全部模型调用结束后服务会主动删除临时对象。OSS Bucket 需要配置一条仅匹配 `temp-references/` 的生命周期规则，在对象最后修改时间超过 1 天后删除，负责清理进程异常退出产生的残留对象。正式结果目录 `images/` 不得与临时目录重叠。
 
 ## 日志
 
@@ -142,7 +142,7 @@ Invoke-WebRequest http://127.0.0.1:5000/health
 提示词中的分图要求并禁止拼图。生成结果按任务序号上传，响应中的 `ossUrls`
 包含全部图片地址，`ossUrl` 指向第一张图片。
 
-请求中的参考图会在拆分多图任务之前下载一次并上传为私有 OSS 临时对象。EasyRouter 使用 Gemini `fileData.fileUri`，OpenRouter 使用 `input_references` HTTP(S) URL；同一批次的生成任务和服务商回退共享通过 `OSS_TEMP_CUSTOM_DOMAIN` 生成的签名 URL。上传完成后服务立即释放本地参考图数据，全部模型调用结束后主动删除临时对象。
+请求中的参考图会在拆分多图任务之前下载一次并上传为私有 OSS 临时对象。EasyRouter 使用 Gemini `fileData.fileUri` 签名 URL；OpenRouter 使用 `input_references` Base64 Data URL，并仅在实际调用 OpenRouter 时读取临时对象。同一批次的生成任务和服务商回退共享临时对象。上传完成后服务立即释放本地参考图数据，全部模型调用结束后主动删除临时对象。
 
 ```powershell
 $body = @{

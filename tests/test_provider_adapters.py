@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import Mock, patch
 
 import httpx
 
 from services.domain.errors import ErrorCategory, ProviderError, provider_error_from_httpx
 from services.model_registry import load_model_registry
 from services.gemini_service import build_gemini_invocation_plan
+from services.http import AssetFetchError, FetchedAsset
 from services.providers.openrouter import OpenRouterProvider, _build_input_references
 from services.domain.requests import (
     GenerateImageRequest,
@@ -140,7 +142,7 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         self.assertNotIn(signed_url, json.dumps(plan.to_dict()))
         self.assertIn("<signed-url>", json.dumps(plan.to_dict()))
 
-    def test_openrouter_uses_signed_reference_url(self) -> None:
+    def test_openrouter_converts_signed_reference_to_base64(self) -> None:
         signed_url = "https://bucket.example/reference.png?signature=secret"
         request_data = GenerateImageRequest(
             request_id="request-openrouter-signed-reference",
@@ -157,15 +159,55 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             ],
         )
 
+        asset_fetcher = Mock()
+        asset_fetcher.fetch.return_value = FetchedAsset(
+            body=b"reference-image",
+            content_type="image/png",
+            final_url=signed_url,
+        )
+
+        references = _build_input_references(request_data, asset_fetcher)
+
         self.assertEqual(
-            _build_input_references(request_data),
+            references,
             [
                 {
                     "type": "image_url",
-                    "image_url": {"url": signed_url},
+                    "image_url": {
+                        "url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"
+                    },
                 }
             ],
         )
+        asset_fetcher.fetch.assert_called_once_with(signed_url)
+        self.assertNotIn(signed_url, json.dumps(references))
+
+    def test_openrouter_maps_reference_download_failure(self) -> None:
+        request_data = GenerateImageRequest(
+            request_id="request-openrouter-reference-failed",
+            prompt="生成图片",
+            model="gemini-3.1-flash-image",
+            aspect_ratio="1:1",
+            image_size="1K",
+            input_type="file_url",
+            file_urls=[],
+            files=[],
+            raw_payload={},
+            reference_images=[
+                ReferenceImageInfo(
+                    url="https://bucket.example/reference.png?signature=secret",
+                    mime_type="image/png",
+                )
+            ],
+        )
+        asset_fetcher = Mock()
+        asset_fetcher.fetch.side_effect = AssetFetchError("download failed")
+
+        with self.assertRaises(ProviderError) as raised:
+            _build_input_references(request_data, asset_fetcher)
+
+        self.assertEqual(raised.exception.category, ErrorCategory.INVALID_ASSET)
+        self.assertFalse(raised.exception.counts_toward_circuit)
 
     def test_providers_reject_unstaged_generation_reference(self) -> None:
         request_data = GenerateImageRequest(
@@ -187,7 +229,7 @@ class OpenRouterProviderTestCase(unittest.TestCase):
                 "https://easyrouter.example",
             )
         with self.assertRaisesRegex(ProviderError, "尚未完成临时 OSS 暂存"):
-            _build_input_references(request_data)
+            _build_input_references(request_data, None)
 
     def test_generate_image_uses_official_images_schema(self) -> None:
         captured_request: httpx.Request | None = None
@@ -219,7 +261,16 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             ],
         )
 
-        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        fetched_asset = FetchedAsset(
+            body=b"reference-image",
+            content_type="image/png",
+            final_url="https://bucket.example/reference.png",
+        )
+        with (
+            httpx.Client(transport=httpx.MockTransport(handler)) as client,
+            patch("services.providers.openrouter.build_asset_fetcher") as fetcher,
+        ):
+            fetcher.return_value.fetch.return_value = fetched_asset
             provider = OpenRouterProvider(
                 _build_settings(),
                 "https://openrouter.example/api/v1",
@@ -246,10 +297,7 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": (
-                        "https://bucket.example/reference.png"
-                        "?signature=secret"
-                    )
+                    "url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"
                 },
             },
         )

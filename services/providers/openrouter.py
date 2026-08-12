@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -15,7 +16,13 @@ from services.domain.errors import (
 )
 from services.domain.provider import ImageProviderResult, TextProviderResult
 from services.gemini_service import GeminiRawResponse
-from services.http import build_request_timeout, get_http_client
+from services.http import (
+    AssetFetchError,
+    AssetFetcher,
+    build_asset_fetcher,
+    build_request_timeout,
+    get_http_client,
+)
 from services.domain.requests import (
     GenerateImageRequest,
     UnderstandImageRequest,
@@ -27,7 +34,19 @@ from services.settings import AppSettings
 logger = logging.getLogger(__name__)
 
 
-def _build_input_references(request: GenerateImageRequest) -> list[dict[str, Any]]:
+def _build_input_references(
+    request: GenerateImageRequest,
+    asset_fetcher: AssetFetcher | None,
+) -> list[dict[str, Any]]:
+    """把临时 OSS 参考图转换为 OpenRouter 接受的 Base64 Data URL。
+
+    参数：
+        request: 已完成临时 OSS 暂存的图片生成请求。
+        asset_fetcher: 用于读取私有签名 URL 的安全资源下载器。
+
+    返回值：
+        仅包含 Base64 Data URL 的 OpenRouter `input_references` 列表。
+    """
     if request.file_urls or request.files:
         raise ProviderError(
             provider="openrouter",
@@ -36,14 +55,45 @@ def _build_input_references(request: GenerateImageRequest) -> list[dict[str, Any
             retryable=False,
             counts_toward_circuit=False,
         )
-    urls = [reference.url for reference in request.reference_images]
-    return [
+    if not request.reference_images:
+        return []
+    if asset_fetcher is None:
+        raise RuntimeError("OpenRouter 参考图下载器尚未初始化。")
+
+    references: list[dict[str, Any]] = []
+    total_bytes = 0
+    try:
+        for reference in request.reference_images:
+            fetched = asset_fetcher.fetch(reference.url)
+            total_bytes += len(fetched.body)
+            encoded = base64.b64encode(fetched.body).decode("ascii")
+            references.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{fetched.content_type};base64,{encoded}"
+                    },
+                }
+            )
+    except AssetFetchError as exc:
+        raise ProviderError(
+            provider="openrouter",
+            category=ErrorCategory.INVALID_ASSET,
+            message="OpenRouter 参考图读取或 Base64 转换失败。",
+            retryable=False,
+            counts_toward_circuit=False,
+            cause=exc,
+        ) from exc
+
+    logger.debug(
+        "provider.openrouter.reference.base64.completed: %s",
         {
-            "type": "image_url",
-            "image_url": {"url": url},
-        }
-        for url in urls
-    ]
+            "requestId": request.request_id,
+            "referenceCount": len(references),
+            "totalBytes": total_bytes,
+        },
+    )
+    return references
 
 
 def _parse_error_payload(response: httpx.Response) -> tuple[str, str]:
@@ -112,7 +162,12 @@ class OpenRouterProvider:
         }
         if request.aspect_ratio:
             body["aspect_ratio"] = request.aspect_ratio
-        input_references = _build_input_references(request)
+        input_references = _build_input_references(
+            request,
+            build_asset_fetcher(self._settings)
+            if request.reference_images
+            else None,
+        )
         if input_references:
             body["input_references"] = input_references
 
