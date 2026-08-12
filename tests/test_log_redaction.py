@@ -83,12 +83,12 @@ class LogRedactionTestCase(unittest.TestCase):
     def test_invocation_plan_summaries_exclude_sensitive_content(self) -> None:
         prompt = "不应进入日志的提示词"
         reference_url = "https://assets.example/image.png?token=secret"
-        reference = PreparedReferenceInput(
+        reference = PreparedReferenceInput.from_bytes(
             source_type="url",
             mime_type="image/png",
             file_name="image.png",
             payload=b"image",
-            source_ref=reference_url,
+            has_source_reference=True,
         )
         gemini_plan = GeminiInvocationPlan(
             api_url="https://provider.example/v1/models/test:generateContent",

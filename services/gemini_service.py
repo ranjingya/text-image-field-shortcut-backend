@@ -6,7 +6,7 @@ import json
 import logging
 import mimetypes
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib import parse
@@ -34,12 +34,6 @@ from services.http import (
 from services.settings import AppSettings, HttpClientSettings
 
 logger = logging.getLogger(__name__)
-
-GEMINI_MODEL_ALIASES = {
-    "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-    "gemini-3-pro-image-preview": "gemini-3-pro-image",
-}
-
 
 def _parse_gemini_error_payload(
     response_body: bytes,
@@ -90,31 +84,6 @@ def _parse_gemini_error_payload(
     return "", message or fallback_message
 
 
-def resolve_gemini_model_id(requested_model: str, default_model: str) -> str:
-    """解析 Gemini 模型 ID，并按受控别名表路由旧模型。
-
-    参数：
-        requested_model: 请求中显式传入的模型 ID，为空时使用默认模型。
-        default_model: 服务端配置的默认 Gemini 模型 ID。
-
-    返回值：
-        可直接用于调用 Gemini 接口的正式版模型 ID。
-    """
-    resolved_model = str(requested_model or default_model or "").strip()
-    stable_model = GEMINI_MODEL_ALIASES.get(resolved_model)
-    if not stable_model:
-        return resolved_model
-
-    logger.debug(
-        "gemini.backend.model.compatibility_route: %s",
-        {
-            "requestedModel": resolved_model,
-            "resolvedModel": stable_model,
-        },
-    )
-    return stable_model
-
-
 def _guess_mime_type(file_name: str, fallback: str = "application/octet-stream") -> str:
     guessed, _ = mimetypes.guess_type(file_name)
     return guessed or fallback
@@ -161,15 +130,40 @@ class PreparedReferenceInput:
     source_type: str
     mime_type: str
     file_name: str
-    payload: bytes
-    source_ref: str = ""
-    base64_data: str | None = None
-    payload_size: int = field(init=False)
+    payload_size: int
+    base64_data: str
+    has_source_reference: bool = False
 
-    def __post_init__(self) -> None:
-        self.payload_size = len(self.payload)
-        if self.base64_data is None:
-            self.base64_data = base64.b64encode(self.payload).decode("ascii")
+    @classmethod
+    def from_bytes(
+        cls,
+        *,
+        source_type: str,
+        mime_type: str,
+        file_name: str,
+        payload: bytes,
+        has_source_reference: bool,
+    ) -> PreparedReferenceInput:
+        """从图片字节构建不保留原始字节的参考图输入。
+
+        参数：
+            source_type: 参考图来源类型。
+            mime_type: 已识别的图片 MIME 类型。
+            file_name: 用于调试摘要的安全文件名。
+            payload: 待编码的原始图片字节。
+            has_source_reference: 是否来自外部资源地址。
+
+        返回值：
+            仅保存 Base64 与字节数的参考图输入。
+        """
+        return cls(
+            source_type=source_type,
+            mime_type=mime_type,
+            file_name=file_name,
+            payload_size=len(payload),
+            base64_data=base64.b64encode(payload).decode("ascii"),
+            has_source_reference=has_source_reference,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -177,7 +171,7 @@ class PreparedReferenceInput:
             "mimeType": self.mime_type,
             "fileName": self.file_name,
             "payloadSize": self.payload_size,
-            "hasSourceReference": bool(self.source_ref),
+            "hasSourceReference": self.has_source_reference,
         }
 
 
@@ -293,12 +287,12 @@ def _read_url_as_inline_input(
         ) from exc
     if decoded_data_url:
         mime_type, payload = decoded_data_url
-        return PreparedReferenceInput(
+        return PreparedReferenceInput.from_bytes(
             source_type="data_url",
             mime_type=mime_type,
             file_name=f"reference{mimetypes.guess_extension(mime_type) or '.bin'}",
             payload=payload,
-            source_ref="data_url",
+            has_source_reference=True,
         )
 
     request_url = str(file_url or "").strip()
@@ -326,12 +320,12 @@ def _read_url_as_inline_input(
     file_name = _safe_file_name(
         fallback_name, f"reference{mimetypes.guess_extension(mime_type) or '.bin'}"
     )
-    return PreparedReferenceInput(
+    return PreparedReferenceInput.from_bytes(
         source_type="url",
         mime_type=mime_type,
         file_name=file_name,
         payload=payload,
-        source_ref=request_url,
+        has_source_reference=True,
     )
 
 
@@ -394,7 +388,7 @@ def build_gemini_invocation_plan(
             retryable=False,
             counts_toward_circuit=False,
         )
-    resolved_model = resolve_gemini_model_id(request_data.model, "")
+    resolved_model = request_data.model
     api_path = f"/v1beta/models/{resolved_model}:generateContent"
     request_body = _build_gemini_request_body(
         request_data.prompt,
@@ -418,7 +412,7 @@ def _build_gemini_text_request_body(
 ) -> dict[str, Any]:
     parts: list[dict[str, Any]] = []
     parts.extend(
-        _build_inline_data_part(item.base64_data or "", item.mime_type)
+        _build_inline_data_part(item.base64_data, item.mime_type)
         for item in prepared_inputs
     )
     if prompt:
@@ -451,7 +445,7 @@ def build_gemini_understand_plan(
     prepared_inputs = _prepare_url_reference_inputs(
         request_data.file_urls, build_asset_fetcher(settings)
     )
-    resolved_model = resolve_gemini_model_id(request_data.model, "")
+    resolved_model = request_data.model
     api_path = f"/v1beta/models/{resolved_model}:generateContent"
     request_body = _build_gemini_text_request_body(
         request_data.prompt,
