@@ -85,6 +85,8 @@ FEISHU_ALERT_KEYWORD=
 
 生产环境使用 `LOG_LEVEL=INFO` 时，每个成功业务请求记录接收和完成两条汇总日志。完成日志包含模型、服务商、兜底状态、图片数量和总耗时。图片生成接口还会记录 `queued`、`queuedImageCount` 和 `maxQueueWaitMs`；任务无法立即获得并发名额时即视为排队。单张生成、响应解析和 OSS 上传等逐项明细使用 `DEBUG` 级别，仅在排查问题时通过 `LOG_LEVEL=DEBUG` 开启。服务商失败、熔断状态变化和最终请求失败继续使用 `WARNING` 或 `ERROR`。
 
+服务商 HTTP 失败日志包含 `statusCode`、`providerErrorType`、`providerRequestId`、`responseBytes` 和脱敏后的 `message`。错误正文中的 HTTP(S) URL 会替换为 `<url>`，避免记录临时参考图签名参数。
+
 带参考图的生成请求额外记录 `image.reference.oss.upload.completed` 和 `image.reference.oss.cleanup.completed` 两条批次汇总 INFO 日志，分别包含上传数量、总字节数、耗时以及主动删除结果。日志不会包含签名 URL、URL 查询参数或图片内容。
 
 ## Docker

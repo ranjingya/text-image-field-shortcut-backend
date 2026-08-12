@@ -35,6 +35,7 @@ class ProviderError(RuntimeError):
     retry_after_seconds: float | None = None
     request_id: str = ""
     provider_error_type: str = ""
+    response_bytes: int | None = None
     counts_toward_circuit: bool = True
     cause: Exception | None = None
 
@@ -52,6 +53,7 @@ class ProviderError(RuntimeError):
             retry_after_seconds=self.retry_after_seconds,
             request_id=self.request_id,
             provider_error_type=self.provider_error_type,
+            response_bytes=self.response_bytes,
             counts_toward_circuit=self.counts_toward_circuit,
         )
 
@@ -74,6 +76,7 @@ def provider_error_from_status(
     headers: Any | None = None,
     error_type: str = "",
     request_id: str = "",
+    response_bytes: int | None = None,
 ) -> ProviderError:
     """将服务商 HTTP 错误转换成统一错误。
 
@@ -84,6 +87,7 @@ def provider_error_from_status(
         headers: 用于读取 Retry-After 的响应头。
         error_type: 服务商返回的细分错误类型。
         request_id: 服务商响应中的请求标识。
+        response_bytes: 服务商错误响应正文的字节数。
 
     返回值：
         可供路由层判断重试、兜底和熔断的统一错误。
@@ -125,6 +129,7 @@ def provider_error_from_status(
         retry_after_seconds=_read_retry_after(headers or {}),
         request_id=request_id,
         provider_error_type=normalized_error_type,
+        response_bytes=response_bytes,
     )
 
 

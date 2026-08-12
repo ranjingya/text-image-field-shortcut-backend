@@ -421,24 +421,27 @@ class FailoverRouter:
                             error_category=error.category,
                         )
                     )
+                    failure_log = {
+                        "provider": provider_name,
+                        "publicModel": public_model,
+                        "attempt": attempt_number,
+                        "elapsedMs": elapsed_ms,
+                        "errorCategory": error.category,
+                        "statusCode": error.status_code,
+                        "providerErrorType": error.provider_error_type,
+                        "causeType": (
+                            type(error.cause).__name__
+                            if error.cause is not None
+                            else ""
+                        ),
+                        "providerRequestId": error.request_id,
+                        "message": " ".join(str(error).split())[:300],
+                    }
+                    if error.response_bytes is not None:
+                        failure_log["responseBytes"] = error.response_bytes
                     logger.warning(
                         "provider.route.attempt.failed: %s",
-                        {
-                            "provider": provider_name,
-                            "publicModel": public_model,
-                            "attempt": attempt_number,
-                            "elapsedMs": elapsed_ms,
-                            "errorCategory": error.category,
-                            "statusCode": error.status_code,
-                            "providerErrorType": error.provider_error_type,
-                            "causeType": (
-                                type(error.cause).__name__
-                                if error.cause is not None
-                                else ""
-                            ),
-                            "providerRequestId": error.request_id,
-                            "message": " ".join(str(error).split())[:300],
-                        },
+                        failure_log,
                     )
                     if not error.retryable:
                         if provider_index == 0:

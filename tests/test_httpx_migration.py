@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
+from services.domain.errors import ErrorCategory, ProviderError
 from services.gemini_service import GeminiInvocationPlan, invoke_gemini
 from services.http.asset_fetcher import AssetFetchError, AssetFetcher
 from services.http.client_factory import HttpClientRegistry
@@ -61,6 +62,64 @@ class ProviderHttpxInvocationTestCase(unittest.TestCase):
         self.assertIsNotNone(captured_request)
         self.assertEqual(captured_request.headers["authorization"], "Bearer secret")
         self.assertIn(b'"contents"', captured_request.content)
+
+    def test_gemini_error_payload_is_preserved_without_signed_url(self) -> None:
+        signed_url = (
+            "https://temp-images.example.com/temp-references/image.jpg"
+            "?x-oss-signature=secret"
+        )
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": f"Cannot fetch reference {signed_url}",
+                        "type": "upstream_error",
+                    }
+                },
+                headers={"x-request-id": "easyrouter-request"},
+            )
+
+        plan = GeminiInvocationPlan(
+            api_url="https://provider.example/v1beta/models/test:generateContent",
+            api_path="/v1beta/models/test:generateContent",
+            model="test",
+            prompt="测试",
+            prepared_inputs=[],
+            request_body={"contents": [{"parts": [{"text": "测试"}]}]},
+        )
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaises(ProviderError) as raised:
+                invoke_gemini(plan, "secret", client=client)
+
+        error = raised.exception
+        self.assertEqual(error.category, ErrorCategory.INVALID_REQUEST)
+        self.assertEqual(error.provider_error_type, "upstream_error")
+        self.assertEqual(error.request_id, "easyrouter-request")
+        self.assertGreater(error.response_bytes or 0, 0)
+        self.assertEqual(error.message, "Cannot fetch reference <url>")
+        self.assertNotIn("x-oss-signature", error.message)
+
+    def test_gemini_non_json_error_uses_limited_response_text(self) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(400, text="invalid image input")
+        )
+        plan = GeminiInvocationPlan(
+            api_url="https://provider.example/v1beta/models/test:generateContent",
+            api_path="/v1beta/models/test:generateContent",
+            model="test",
+            prompt="测试",
+            prepared_inputs=[],
+            request_body={"contents": []},
+        )
+
+        with httpx.Client(transport=transport) as client:
+            with self.assertRaises(ProviderError) as raised:
+                invoke_gemini(plan, "secret", client=client)
+
+        self.assertEqual(raised.exception.message, "invalid image input")
 
     def test_openai_image_invocation_uses_images_endpoint(self) -> None:
         captured_request: httpx.Request | None = None

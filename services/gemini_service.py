@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
 import mimetypes
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +34,69 @@ GEMINI_MODEL_ALIASES = {
     "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
     "gemini-3-pro-image-preview": "gemini-3-pro-image",
 }
+
+
+def _sanitize_provider_error_message(value: Any) -> str:
+    """压缩服务商错误消息并移除其中可能包含签名参数的 URL。"""
+    normalized = " ".join(str(value or "").split())
+    redacted = re.sub(
+        r"https?://[^\s\"'<>]+",
+        "<url>",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return redacted[:1000]
+
+
+def _parse_gemini_error_payload(
+    response_body: bytes,
+    status_code: int,
+) -> tuple[str, str]:
+    """提取 EasyRouter 错误类型和安全消息。
+
+    参数：
+        response_body: EasyRouter 返回的原始错误响应正文。
+        status_code: EasyRouter 返回的 HTTP 状态码。
+
+    返回值：
+        服务商错误类型和已脱敏、限长的错误消息。
+    """
+    fallback_message = f"Gemini HTTP {status_code}"
+    try:
+        payload = json.loads(response_body)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        message = _sanitize_provider_error_message(
+            response_body.decode("utf-8", errors="replace")
+        )
+        return "", message or fallback_message
+
+    if not isinstance(payload, dict):
+        return "", fallback_message
+    error = payload.get("error", payload)
+    if isinstance(error, dict):
+        metadata = error.get("metadata")
+        metadata_error_type = (
+            metadata.get("error_type")
+            if isinstance(metadata, dict)
+            else ""
+        )
+        error_type = str(
+            metadata_error_type
+            or error.get("type")
+            or error.get("error_type")
+            or error.get("status")
+            or payload.get("error_type")
+            or ""
+        )
+        message = _sanitize_provider_error_message(
+            error.get("message")
+            or error.get("detail")
+            or payload.get("message")
+            or fallback_message
+        )
+        return error_type, message
+    message = _sanitize_provider_error_message(error or payload.get("message"))
+    return "", message or fallback_message
 
 
 def resolve_gemini_model_id(requested_model: str, default_model: str) -> str:
@@ -478,20 +543,28 @@ def invoke_gemini(
         )
 
         if response.status_code >= 400:
+            error_type, error_message = _parse_gemini_error_payload(
+                response_body,
+                response.status_code,
+            )
             logger.debug(
                 "gemini.backend.request.http_error: %s",
                 {
                     "status": response.status_code,
                     "elapsedMs": elapsed_ms,
                     "bodyLength": len(response_body),
+                    "providerErrorType": error_type,
+                    "message": error_message,
                 },
             )
             raise provider_error_from_status(
                 "easyrouter",
                 response.status_code,
-                f"Gemini HTTP {response.status_code}",
+                error_message,
                 headers=response.headers,
+                error_type=error_type,
                 request_id=response.headers.get("x-request-id", ""),
+                response_bytes=len(response_body),
             )
 
         return GeminiRawResponse(

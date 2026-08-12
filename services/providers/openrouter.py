@@ -258,5 +258,6 @@ class OpenRouterProvider:
                 headers=response.headers,
                 error_type=error_type,
                 request_id=response.headers.get("x-request-id", ""),
+                response_bytes=len(response.content),
             )
         return response, elapsed_ms
