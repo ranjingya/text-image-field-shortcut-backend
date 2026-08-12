@@ -134,27 +134,16 @@ class FailoverRouter:
     def generate_image(
         self,
         request: GenerateImageRequest,
-        *,
-        deadline: float | None = None,
     ) -> ImageRouteResult:
         """执行图片生成主备路由。
 
         参数：
             request: 已完成业务校验的图片生成请求。
-            deadline: 上层请求允许使用的单调时钟截止时间。
 
         返回值：
             包含服务商结果、是否兜底和完整尝试链路的路由结果。
         """
         public_model = self._registry.resolve(request.model)
-        configured_deadline = (
-            time.monotonic() + self._settings.routing.request_deadline_seconds
-        )
-        resolved_deadline = (
-            min(deadline, configured_deadline)
-            if deadline is not None
-            else configured_deadline
-        )
         attempts: list[RouteAttempt] = []
         errors: list[ProviderError] = []
 
@@ -173,7 +162,6 @@ class FailoverRouter:
         result = self._route(
             capability="image_generation",
             public_model=public_model,
-            deadline=resolved_deadline,
             invoke=invoke,
             is_empty=lambda item: (
                 not any(
@@ -201,7 +189,6 @@ class FailoverRouter:
             包含服务商结果、是否兜底和完整尝试链路的路由结果。
         """
         public_model = self._registry.resolve(request.model)
-        deadline = time.monotonic() + self._settings.routing.request_deadline_seconds
         attempts: list[RouteAttempt] = []
         errors: list[ProviderError] = []
 
@@ -220,7 +207,6 @@ class FailoverRouter:
         result = self._route(
             capability="image_understanding",
             public_model=public_model,
-            deadline=deadline,
             invoke=invoke,
             is_empty=lambda item: not item.text.strip(),
             attempts=attempts,
@@ -238,7 +224,6 @@ class FailoverRouter:
         *,
         capability: str,
         public_model: str,
-        deadline: float,
         invoke: Callable[[ProviderClient, str, float], TProviderResult],
         is_empty: Callable[[TProviderResult], bool],
         attempts: list[RouteAttempt],
@@ -318,17 +303,20 @@ class FailoverRouter:
                 else 0
             )
             maximum_attempts = max_attempts + empty_retries_remaining
+            provider_deadline = (
+                time.monotonic() + self._settings.routing.provider_timeout_seconds
+            )
             attempt_number = 0
             provider_error: ProviderError | None = None
             stop_after_provider = False
             while attempt_number < maximum_attempts:
                 attempt_number += 1
-                remaining_seconds = deadline - time.monotonic()
+                remaining_seconds = provider_deadline - time.monotonic()
                 if remaining_seconds <= 0:
                     timeout_error = ProviderError(
                         provider=provider_name,
                         category=ErrorCategory.TIMEOUT,
-                        message="模型请求超过总时限。",
+                        message="当前服务商请求超过时限。",
                         retryable=True,
                         counts_toward_circuit=False,
                     )
@@ -481,7 +469,7 @@ class FailoverRouter:
                         stop_after_provider = True
                         break
                     if attempt_number < max_attempts:
-                        if self._wait_for_retry(error, deadline):
+                        if self._wait_for_retry(error, provider_deadline):
                             continue
                     break
 

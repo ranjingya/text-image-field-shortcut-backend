@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from services.domain.errors import ErrorCategory, ProviderError
 from services.domain.provider import ImageProviderResult, TextProviderResult
@@ -131,7 +132,7 @@ def _build_settings(*, fallback_enabled: bool = True) -> AppSettings:
         oss=OssSettings(endpoint="", region="", bucket_name="", bucket_prefix=""),
         fallback_enabled=fallback_enabled,
         routing=RoutingSettings(
-            request_deadline_seconds=30,
+            provider_timeout_seconds=30,
             primary_max_attempts=1,
             fallback_max_attempts=1,
             primary_empty_response_retry_count=1,
@@ -216,6 +217,35 @@ class FailoverRouterTestCase(unittest.TestCase):
         self.assertIsNot(reported_error, primary_error)
         self.assertIsNone(reported_error.cause)
         self.assertIsNone(reported_error.__traceback__)
+
+    def test_fallback_receives_a_fresh_provider_timeout(self) -> None:
+        primary_error = ProviderError(
+            provider="easyrouter",
+            category=ErrorCategory.TIMEOUT,
+            message="timeout",
+            retryable=True,
+        )
+        fallback_result = _image_result(
+            "openrouter",
+            "gemini-3.1-flash-image",
+            "google/gemini-3.1-flash-image",
+        )
+        primary = FakeProvider("easyrouter", [primary_error])
+        fallback = FakeProvider("openrouter", [fallback_result])
+        router = FailoverRouter(
+            _build_settings(),
+            self.registry,
+            {"easyrouter": primary, "openrouter": fallback},
+        )
+
+        with patch(
+            "services.routing.failover.time.monotonic",
+            side_effect=[100.0, 100.0, 400.0, 400.0],
+        ):
+            router.generate_image(_build_request())
+
+        self.assertEqual(primary.calls[0][2], 30.0)
+        self.assertEqual(fallback.calls[0][2], 30.0)
 
     def test_non_retryable_error_does_not_call_fallback(self) -> None:
         primary_error = ProviderError(

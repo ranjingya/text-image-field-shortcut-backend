@@ -92,7 +92,7 @@ class HttpSettings:
 
 @dataclass(frozen=True)
 class RoutingSettings:
-    request_deadline_seconds: float = 390.0
+    provider_timeout_seconds: float = 300.0
     primary_max_attempts: int = 1
     fallback_max_attempts: int = 1
     primary_empty_response_retry_count: int = 1
@@ -225,7 +225,9 @@ def get_app_settings() -> AppSettings:
         ),
         fallback_enabled=_read_bool("FALLBACK_ENABLED", False),
         routing=RoutingSettings(
-            request_deadline_seconds=_read_positive_float("MODEL_REQUEST_DEADLINE_SECONDS", 390.0),
+            provider_timeout_seconds=_read_positive_float(
+                "PROVIDER_REQUEST_TIMEOUT_SECONDS", 300.0
+            ),
             primary_max_attempts=_read_positive_int("PRIMARY_MAX_ATTEMPTS", 1),
             fallback_max_attempts=_read_positive_int("FALLBACK_MAX_ATTEMPTS", 1),
             primary_empty_response_retry_count=_read_non_negative_int(

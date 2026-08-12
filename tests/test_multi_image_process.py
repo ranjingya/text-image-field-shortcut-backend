@@ -151,10 +151,9 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
         started = threading.Barrier(2)
         received_prompts = {}
 
-        def generate_image(item_request, *, deadline=None):
+        def generate_image(item_request):
             item_index = int(item_request.request_id.rsplit(":", 1)[1]) - 1
             received_prompts[item_index] = item_request.prompt
-            self.assertIsNotNone(deadline)
             started.wait(timeout=1)
             provider_result = SimpleNamespace(
                 public_model="gemini-3.1-flash-image",
@@ -172,7 +171,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             )
 
         settings = SimpleNamespace(
-            routing=SimpleNamespace(request_deadline_seconds=30),
             image_generation=SimpleNamespace(
                 max_count=5,
                 max_concurrency=5,
@@ -262,7 +260,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             image_count=6,
         )
         get_app_settings.return_value = SimpleNamespace(
-            routing=SimpleNamespace(request_deadline_seconds=30),
             image_generation=SimpleNamespace(
                 max_count=5,
                 max_concurrency=5,
@@ -320,7 +317,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             image_count=2,
         )
         settings = SimpleNamespace(
-            routing=SimpleNamespace(request_deadline_seconds=30),
             image_generation=SimpleNamespace(
                 max_count=5,
                 max_concurrency=5,
@@ -352,7 +348,7 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             )
         )
 
-        def generate_image(item_request, *, deadline=None):
+        def generate_image(item_request):
             self.assertEqual(item_request.file_urls, [])
             self.assertEqual(item_request.files, [])
             self.assertEqual(
@@ -488,7 +484,7 @@ class GenerationGateTestCase(unittest.TestCase):
         self.assertTrue(raised.exception.retryable)
 
 
-class GenerationBudgetTestCase(unittest.TestCase):
+class GenerationAdmissionTestCase(unittest.TestCase):
     def test_default_queue_timeout_is_420_seconds(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             settings = load_app_settings()
@@ -498,8 +494,7 @@ class GenerationBudgetTestCase(unittest.TestCase):
             420.0,
         )
 
-    @patch("services.pipelines.image.time.monotonic")
-    def test_execution_budget_starts_after_queue_admission(self, monotonic) -> None:
+    def test_provider_call_starts_after_queue_admission(self) -> None:
         request_data = GenerateImageRequest(
             request_id="request-budget",
             prompt="生成图片",
@@ -519,7 +514,7 @@ class GenerationBudgetTestCase(unittest.TestCase):
             payload=b"image",
         )
         router = MagicMock()
-        router.generate_image.return_value = SimpleNamespace(
+        route_result = SimpleNamespace(
             provider_result=SimpleNamespace(
                 public_model="gemini-3.1-flash-image",
                 provider="easyrouter",
@@ -542,18 +537,17 @@ class GenerationBudgetTestCase(unittest.TestCase):
 
         generation_gate.acquire.return_value.__enter__.side_effect = enter_gate
 
-        def current_time() -> float:
+        def generate_image(_request):
             self.assertTrue(gate_entered)
-            return 100.0
+            return route_result
 
-        monotonic.side_effect = current_time
+        router.generate_image.side_effect = generate_image
 
         result = _generate_batch_item(
             router,
             request_data,
             0,
             generation_gate,
-            execution_timeout_seconds=390.0,
             queue_timeout_seconds=420.0,
         )
 
@@ -562,10 +556,7 @@ class GenerationBudgetTestCase(unittest.TestCase):
             request_id="request-budget",
             image_index=0,
         )
-        self.assertEqual(
-            router.generate_image.call_args.kwargs["deadline"],
-            490.0,
-        )
+        router.generate_image.assert_called_once()
         self.assertTrue(result.queued)
         self.assertEqual(result.queue_wait_ms, 12_000.0)
 

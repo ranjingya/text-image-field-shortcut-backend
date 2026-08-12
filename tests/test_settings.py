@@ -7,6 +7,24 @@ from unittest.mock import patch
 from services.settings import get_app_settings
 
 
+class RoutingSettingsTestCase(unittest.TestCase):
+    def test_provider_timeout_uses_300_second_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = get_app_settings()
+
+        self.assertEqual(settings.routing.provider_timeout_seconds, 300.0)
+
+    def test_provider_timeout_is_loaded_from_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"PROVIDER_REQUEST_TIMEOUT_SECONDS": "240"},
+            clear=True,
+        ):
+            settings = get_app_settings()
+
+        self.assertEqual(settings.routing.provider_timeout_seconds, 240.0)
+
+
 class OssSettingsTestCase(unittest.TestCase):
     def test_temporary_reference_settings_use_safe_defaults(self) -> None:
         with patch.dict(

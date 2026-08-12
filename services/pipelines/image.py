@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 
@@ -96,7 +95,6 @@ def _generate_batch_item(
     request_data: GenerateImageRequest,
     index: int,
     generation_gate: GenerationGate,
-    execution_timeout_seconds: float,
     queue_timeout_seconds: float,
 ) -> GeneratedBatchItem:
     """执行单张图片生成任务。
@@ -106,7 +104,6 @@ def _generate_batch_item(
         request_data: 当前批次共用的图片生成请求。
         index: 当前图片在批次中的零基序号。
         generation_gate: 当前进程共享的图片生成并发闸门。
-        execution_timeout_seconds: 获得生成名额后的执行预算秒数。
         queue_timeout_seconds: 当前任务允许排队等待的最大秒数。
 
     返回值：
@@ -138,11 +135,7 @@ def _generate_batch_item(
         request_id=request_data.request_id,
         image_index=index,
     ) as admission:
-        execution_deadline = time.monotonic() + execution_timeout_seconds
-        route_result = router.generate_image(
-            item_request,
-            deadline=execution_deadline,
-        )
+        route_result = router.generate_image(item_request)
     provider_result = route_result.provider_result
     assets = provider_result.result.assets
     if len(assets) > 1:
@@ -236,7 +229,6 @@ def _generate_prepared_batch(
                 prepared_request,
                 0,
                 generation_gate,
-                settings.routing.request_deadline_seconds,
                 settings.image_generation.queue_timeout_seconds,
             )
         ]
@@ -255,7 +247,6 @@ def _generate_prepared_batch(
                     prepared_request,
                     index,
                     generation_gate,
-                    settings.routing.request_deadline_seconds,
                     settings.image_generation.queue_timeout_seconds,
                 ): index
                 for index in range(prepared_request.image_count)
@@ -400,12 +391,8 @@ def generate_image_only(request_data: GenerateImageRequest) -> GeneratedImageFil
             request_id=request_data.request_id,
             image_index=0,
         ) as admission:
-            execution_deadline = (
-                time.monotonic() + settings.routing.request_deadline_seconds
-            )
             route_result = build_failover_router(settings).generate_image(
-                prepared_request,
-                deadline=execution_deadline,
+                prepared_request
             )
         provider_result = route_result.provider_result
         asset = provider_result.result.assets[0]
