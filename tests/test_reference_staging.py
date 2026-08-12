@@ -36,7 +36,6 @@ def _build_request() -> GenerateImageRequest:
         input_type="file_url",
         file_urls=["https://assets.example/reference.png?token=secret"],
         files=[],
-        raw_payload={},
         image_count=2,
     )
 
@@ -150,7 +149,6 @@ class ReferenceImageStagingTestCase(unittest.TestCase):
         ) as staged_request:
             storage.close.assert_called_once_with()
             self.assertIsNone(uploaded_file.storage)
-            self.assertIsNone(uploaded_file.content)
             self.assertEqual(len(staged_request.reference_images), 1)
 
         storage.close.assert_called_once_with()

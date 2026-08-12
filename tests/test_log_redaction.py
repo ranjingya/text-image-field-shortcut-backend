@@ -23,14 +23,12 @@ class LogRedactionTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=[reference_url],
             files=[],
-            raw_payload={},
         )
         understand_request = UnderstandImageRequest(
             request_id="request-2",
             prompt=prompt,
             model="gemini-3.1-flash-image",
             file_urls=[reference_url],
-            raw_payload={},
         )
 
         serialized = json.dumps(
@@ -51,7 +49,6 @@ class LogRedactionTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
         )
 
         summary = build_result_log_summary(

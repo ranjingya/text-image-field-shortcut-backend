@@ -122,7 +122,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=[],
             files=[],
-            raw_payload={},
             reference_images=[
                 ReferenceImageInfo(url=signed_url, mime_type="image/png")
             ],
@@ -157,7 +156,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=[],
             files=[],
-            raw_payload={},
             reference_images=[
                 ReferenceImageInfo(url=signed_url, mime_type="image/png")
             ],
@@ -194,7 +192,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=[],
             files=[],
-            raw_payload={},
             reference_images=[
                 ReferenceImageInfo(
                     url="https://bucket.example/reference.png?signature=secret",
@@ -221,7 +218,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=["https://assets.example/reference.png"],
             files=[],
-            raw_payload={},
         )
 
         with self.assertRaisesRegex(ProviderError, "尚未完成临时 OSS 暂存"):
@@ -254,7 +250,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=[],
             files=[],
-            raw_payload={},
             reference_images=[
                 ReferenceImageInfo(
                     url="https://bucket.example/reference.png?signature=secret",
@@ -327,7 +322,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             prompt="描述图片",
             model="gemini-3.1-flash-image",
             file_urls=["https://assets.example/cat.png"],
-            raw_payload={},
         )
 
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -383,7 +377,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
         )
 
         with httpx.Client(transport=transport) as client:
@@ -431,7 +424,6 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
         )
 
         with httpx.Client(transport=transport) as client:

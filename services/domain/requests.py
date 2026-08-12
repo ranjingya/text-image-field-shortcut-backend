@@ -15,7 +15,6 @@ class UploadedFileInfo:
     content_type: str
     content_length: int
     storage: Any
-    content: bytes | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,7 +43,6 @@ class GenerateImageRequest:
     input_type: str
     file_urls: list[str]
     files: list[UploadedFileInfo]
-    raw_payload: dict[str, Any]
     image_count: int = 1
     reference_images: list[ReferenceImageInfo] = field(default_factory=list)
 
@@ -70,7 +68,6 @@ class UnderstandImageRequest:
     prompt: str
     model: str
     file_urls: list[str]
-    raw_payload: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {

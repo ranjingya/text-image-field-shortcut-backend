@@ -149,7 +149,6 @@ def _build_request(model: str = "gemini-3.1-flash-image-preview") -> GenerateIma
         input_type="empty",
         file_urls=[],
         files=[],
-        raw_payload={},
     )
 
 

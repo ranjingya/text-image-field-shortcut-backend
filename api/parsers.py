@@ -193,7 +193,6 @@ def parse_generate_image_request(flask_request: Any) -> GenerateImageRequest:
         input_type=input_type,
         file_urls=file_urls,
         files=files,
-        raw_payload=payload if is_json_request else form_data.to_dict(flat=False),
         image_count=_normalize_image_count(raw_image_count),
     )
     logger.debug(
@@ -227,7 +226,6 @@ def parse_understand_image_request(flask_request: Any) -> UnderstandImageRequest
         prompt=_stringify(payload.get("prompt")),
         model=_stringify(payload.get("model")),
         file_urls=file_urls,
-        raw_payload=payload,
     )
     logger.debug(
         "api.request.understanding.parsed: %s",

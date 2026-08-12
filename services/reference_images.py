@@ -48,13 +48,10 @@ def _read_uploaded_reference(
     settings: AppSettings,
 ) -> tuple[bytes, str]:
     """读取上传文件并以文件头确认图片类型。"""
-    if uploaded_file.content is not None:
-        body = uploaded_file.content
-    else:
-        storage = uploaded_file.storage
-        storage.stream.seek(0)
-        body = storage.read()
-        storage.stream.seek(0)
+    storage = uploaded_file.storage
+    storage.stream.seek(0)
+    body = storage.read()
+    storage.stream.seek(0)
     return body, _validate_reference_body(body, settings)
 
 
@@ -79,7 +76,6 @@ def _release_uploaded_reference(uploaded_file: UploadedFileInfo) -> None:
             {"errorType": type(exc).__name__},
         )
     uploaded_file.storage = None
-    uploaded_file.content = None
 
 
 def _read_url_reference(

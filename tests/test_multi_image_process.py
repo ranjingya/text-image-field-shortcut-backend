@@ -136,7 +136,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
             image_count=2,
         )
         assets = {
@@ -260,7 +259,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
             image_count=6,
         )
         get_app_settings.return_value = SimpleNamespace(
@@ -288,7 +286,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
             image_count=2,
         )
 
@@ -320,7 +317,6 @@ class MultiImageProcessPipelineTestCase(unittest.TestCase):
             input_type="file_url",
             file_urls=["https://assets.example/reference.png"],
             files=[],
-            raw_payload={},
             image_count=2,
         )
         settings = SimpleNamespace(
@@ -514,7 +510,6 @@ class GenerationBudgetTestCase(unittest.TestCase):
             input_type="empty",
             file_urls=[],
             files=[],
-            raw_payload={},
             image_count=1,
         )
         asset = NormalizedGeneratedAsset(
