@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import time
@@ -15,17 +14,18 @@ from services.domain.errors import (
     provider_error_from_status,
 )
 from services.domain.provider import ImageProviderResult, TextProviderResult
-from services.gemini_service import GeminiRawResponse
-from services.http import (
-    AssetFetchError,
-    AssetFetcher,
-    build_asset_fetcher,
-    build_request_timeout,
-    get_http_client,
-)
 from services.domain.requests import (
     GenerateImageRequest,
     UnderstandImageRequest,
+)
+from services.gemini_service import GeminiRawResponse
+from services.http import (
+    AssetFetcher,
+    AssetFetchError,
+    build_asset_fetcher,
+    build_request_timeout,
+    get_http_client,
+    resolve_image_data_url,
 )
 from services.response_extractor import extract_text_from_gemini_response
 from services.response_normalizer import normalize_gemini_response
@@ -64,15 +64,15 @@ def _build_input_references(
     total_bytes = 0
     try:
         for reference in request.reference_images:
-            fetched = asset_fetcher.fetch(reference.url)
-            total_bytes += len(fetched.body)
-            encoded = base64.b64encode(fetched.body).decode("ascii")
+            data_url, content_length = resolve_image_data_url(
+                reference.url,
+                asset_fetcher,
+            )
+            total_bytes += content_length
             references.append(
                 {
                     "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{fetched.content_type};base64,{encoded}"
-                    },
+                    "image_url": {"url": data_url},
                 }
             )
     except AssetFetchError as exc:
@@ -113,9 +113,7 @@ def _parse_error_payload(response: httpx.Response) -> tuple[str, str]:
             or error.get("error_type")
             or payload.get("error_type")
             or ""
-        ), str(
-            error.get("message") or "OpenRouter request failed."
-        )[:1000]
+        ), str(error.get("message") or "OpenRouter request failed.")[:1000]
     return "", str(error or "OpenRouter request failed.")[:1000]
 
 
@@ -164,9 +162,7 @@ class OpenRouterProvider:
             body["aspect_ratio"] = request.aspect_ratio
         input_references = _build_input_references(
             request,
-            build_asset_fetcher(self._settings)
-            if request.reference_images
-            else None,
+            build_asset_fetcher(self._settings) if request.reference_images else None,
         )
         if input_references:
             body["input_references"] = input_references
@@ -218,10 +214,20 @@ class OpenRouterProvider:
             包含文本、模型和耗时的服务商结果。
         """
         content: list[dict[str, Any]] = [{"type": "text", "text": request.prompt}]
-        content.extend(
-            {"type": "image_url", "image_url": {"url": url}}
-            for url in request.file_urls
-        )
+        asset_fetcher = build_asset_fetcher(self._settings)
+        try:
+            for url in request.file_urls:
+                data_url, _ = resolve_image_data_url(url, asset_fetcher)
+                content.append({"type": "image_url", "image_url": {"url": data_url}})
+        except AssetFetchError as exc:
+            raise ProviderError(
+                provider=self.name,
+                category=ErrorCategory.INVALID_ASSET,
+                message="OpenRouter 图片理解参考图读取或 Base64 转换失败。",
+                retryable=False,
+                counts_toward_circuit=False,
+                cause=exc,
+            ) from exc
         body = {
             "model": provider_model,
             "messages": [{"role": "user", "content": content}],

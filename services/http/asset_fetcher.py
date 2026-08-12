@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import logging
 import socket
@@ -38,7 +40,9 @@ def _validate_public_http_url(url: str) -> None:
         raise AssetFetchError("资源地址必须是有效的 HTTP 或 HTTPS URL。")
 
     try:
-        addresses = socket.getaddrinfo(parts.hostname, parts.port, type=socket.SOCK_STREAM)
+        addresses = socket.getaddrinfo(
+            parts.hostname, parts.port, type=socket.SOCK_STREAM
+        )
     except OSError as exc:
         raise AssetFetchError("资源地址无法解析。") from exc
 
@@ -65,10 +69,43 @@ def detect_image_content_type(body: bytes) -> str:
     return ""
 
 
+def resolve_image_data_url(value: str, asset_fetcher: AssetFetcher) -> tuple[str, int]:
+    """把远程图片或 Data URL 统一转换为可信的图片 Data URL。
+
+    参数：
+        value: 待处理的远程图片 URL 或 Base64 Data URL。
+        asset_fetcher: 用于安全下载远程图片的资源下载器。
+
+    返回值：
+        规范化后的图片 Data URL，以及原始图片字节数。
+    """
+    normalized = str(value or "").strip()
+    if normalized.startswith("data:"):
+        prefix, separator, encoded = normalized.partition(",")
+        if not separator or ";base64" not in prefix:
+            raise AssetFetchError("图片 Data URL 格式不正确。")
+        try:
+            body = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise AssetFetchError("图片 Data URL 无法解码。") from exc
+        content_type = detect_image_content_type(body)
+        if not content_type:
+            raise AssetFetchError("资源内容不是受支持的图片格式。")
+    else:
+        fetched = asset_fetcher.fetch(normalized)
+        body = fetched.body
+        content_type = fetched.content_type
+
+    encoded_body = base64.b64encode(body).decode("ascii")
+    return f"data:{content_type};base64,{encoded_body}", len(body)
+
+
 class AssetFetcher:
     """安全下载外部图片资源。"""
 
-    def __init__(self, client: httpx.Client, max_bytes: int, max_redirects: int) -> None:
+    def __init__(
+        self, client: httpx.Client, max_bytes: int, max_redirects: int
+    ) -> None:
         self._client = client
         self._max_bytes = max_bytes
         self._max_redirects = max_redirects

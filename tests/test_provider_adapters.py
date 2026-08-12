@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import httpx
 
-from services.domain.errors import ErrorCategory, ProviderError, provider_error_from_httpx
-from services.model_registry import load_model_registry
-from services.gemini_service import build_gemini_invocation_plan
-from services.http import AssetFetchError, FetchedAsset
-from services.providers.openrouter import OpenRouterProvider, _build_input_references
+from services.domain.errors import (
+    ErrorCategory,
+    ProviderError,
+    provider_error_from_httpx,
+)
 from services.domain.requests import (
     GenerateImageRequest,
     ReferenceImageInfo,
     UnderstandImageRequest,
 )
+from services.gemini_service import build_gemini_invocation_plan
+from services.http import AssetFetchError, FetchedAsset
+from services.model_registry import load_model_registry
+from services.providers.openrouter import OpenRouterProvider, _build_input_references
 from services.settings import AppSettings, OssSettings
 
 
@@ -173,9 +177,7 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             [
                 {
                     "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"
-                    },
+                    "image_url": {"url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"},
                 }
             ],
         )
@@ -296,14 +298,21 @@ class OpenRouterProviderTestCase(unittest.TestCase):
             payload["input_references"][0],
             {
                 "type": "image_url",
-                "image_url": {
-                    "url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"
-                },
+                "image_url": {"url": "data:image/png;base64,cmVmZXJlbmNlLWltYWdl"},
             },
         )
 
-    def test_understand_image_uses_chat_completions_schema(self) -> None:
+    @patch("services.providers.openrouter.build_asset_fetcher")
+    def test_understand_image_uses_chat_completions_schema(
+        self,
+        build_fetcher: Mock,
+    ) -> None:
         captured_request: httpx.Request | None = None
+        build_fetcher.return_value.fetch.return_value = FetchedAsset(
+            body=b"\x89PNG\r\n\x1a\nreference-image",
+            content_type="image/png",
+            final_url="https://assets.example/cat.png",
+        )
 
         def handler(request: httpx.Request) -> httpx.Response:
             nonlocal captured_request
@@ -340,6 +349,15 @@ class OpenRouterProviderTestCase(unittest.TestCase):
         self.assertEqual(captured_request.url.path, "/api/v1/chat/completions")
         self.assertEqual(payload["messages"][0]["content"][0]["type"], "text")
         self.assertEqual(payload["messages"][0]["content"][1]["type"], "image_url")
+        self.assertTrue(
+            payload["messages"][0]["content"][1]["image_url"]["url"].startswith(
+                "data:image/png;base64,"
+            )
+        )
+        self.assertNotIn(
+            "https://assets.example/cat.png",
+            json.dumps(payload),
+        )
 
     def test_openrouter_error_type_is_normalized(self) -> None:
         transport = httpx.MockTransport(
@@ -395,7 +413,9 @@ class ProviderErrorMappingTestCase(unittest.TestCase):
     def test_pool_timeout_does_not_count_toward_circuit(self) -> None:
         request = httpx.Request("POST", "https://provider.example")
 
-        error = provider_error_from_httpx("easyrouter", httpx.PoolTimeout("busy", request=request))
+        error = provider_error_from_httpx(
+            "easyrouter", httpx.PoolTimeout("busy", request=request)
+        )
 
         self.assertEqual(error.category, ErrorCategory.LOCAL_CAPACITY)
         self.assertTrue(error.retryable)
