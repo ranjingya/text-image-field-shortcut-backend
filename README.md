@@ -84,6 +84,8 @@ Gunicorn 的 worker 静默超时为 `660` 秒，作为主备服务商各 `300` �
 
 生成参考图统一上传为 `OSS_TEMP_FOLDER_PREFIX` 下的私有临时对象，通过 `OSS_TEMP_CUSTOM_DOMAIN` 生成有效期为 `OSS_TEMP_URL_TTL_SECONDS` 的 HTTPS 签名 URL。EasyRouter 直接使用签名 URL；OpenRouter 调用时由后端读取临时对象并转换为 Base64 Data URL，不向 OpenRouter 发送远程图片 URL。自定义域名需要绑定至当前 Bucket、配置 CNAME 和有效 SSL 证书。`OSS_ENDPOINT` 继续用于对象上传和删除。同一批并发生成和服务商回退复用临时对象，全部模型调用结束后服务会主动删除临时对象。OSS Bucket 需要配置一条仅匹配 `temp-references/` 的生命周期规则，在对象最后修改时间超过 1 天后删除，负责清理进程异常退出产生的残留对象。正式结果目录 `images/` 不得与临时目录重叠。
 
+EasyRouter 返回 `URL_UNREACHABLE` 或 `UNREACHABLE_CONNECT_TIMEOUT` 时，服务将其识别为临时的参考图连接故障并进入 OpenRouter 兜底。其他 HTTP 400 参数错误仍按不可重试错误处理。
+
 ## 日志
 
 生产环境使用 `LOG_LEVEL=INFO` 时，每个成功业务请求记录接收和完成两条汇总日志。完成日志包含模型、服务商、兜底状态、图片数量和总耗时。图片生成接口还会记录 `queued`、`queuedImageCount` 和 `maxQueueWaitMs`；任务无法立即获得并发名额时即视为排队。单张生成、响应解析和 OSS 上传等逐项明细使用 `DEBUG` 级别，仅在排查问题时通过 `LOG_LEVEL=DEBUG` 开启。服务商失败、熔断状态变化和最终请求失败继续使用 `WARNING` 或 `ERROR`。

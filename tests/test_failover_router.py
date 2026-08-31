@@ -3,10 +3,14 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from services.domain.errors import ErrorCategory, ProviderError
+from services.domain.errors import (
+    ErrorCategory,
+    ProviderError,
+    provider_error_from_status,
+)
 from services.domain.provider import ImageProviderResult, TextProviderResult
-from services.model_registry import load_model_registry
 from services.domain.requests import GenerateImageRequest, UnderstandImageRequest
+from services.model_registry import load_model_registry
 from services.response_normalizer import NormalizedGeneratedAsset, NormalizedModelResult
 from services.routing import FailoverExhaustedError, FailoverRouter
 from services.routing.circuit_breaker import CircuitOpenError, CircuitState
@@ -246,6 +250,40 @@ class FailoverRouterTestCase(unittest.TestCase):
 
         self.assertEqual(primary.calls[0][2], 30.0)
         self.assertEqual(fallback.calls[0][2], 30.0)
+
+    def test_reference_connect_timeout_routes_to_openrouter(self) -> None:
+        primary_error = provider_error_from_status(
+            "easyrouter",
+            400,
+            (
+                "Cannot fetch content from the provided URL. "
+                "Status: URL_UNREACHABLE-UNREACHABLE_CONNECT_TIMEOUT"
+            ),
+            error_type="upstream_error",
+        )
+        fallback = FakeProvider(
+            "openrouter",
+            [
+                _image_result(
+                    "openrouter",
+                    "gemini-3.1-flash-image",
+                    "google/gemini-3.1-flash-image",
+                )
+            ],
+        )
+        router = FailoverRouter(
+            _build_settings(),
+            self.registry,
+            {
+                "easyrouter": FakeProvider("easyrouter", [primary_error]),
+                "openrouter": fallback,
+            },
+        )
+
+        result = router.generate_image(_build_request())
+
+        self.assertTrue(result.fallback_used)
+        self.assertEqual(len(fallback.calls), 1)
 
     def test_non_retryable_error_does_not_call_fallback(self) -> None:
         primary_error = ProviderError(

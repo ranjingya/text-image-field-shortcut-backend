@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 
 from services.domain.errors import ErrorCategory, ProviderError
 from services.gemini_service import GeminiInvocationPlan, invoke_gemini
-from services.http.asset_fetcher import AssetFetchError, AssetFetcher
+from services.http.asset_fetcher import AssetFetcher, AssetFetchError
 from services.http.client_factory import HttpClientRegistry
 from services.openai_image_service import OpenAIImageInvocationPlan, invoke_openai_image
 from services.settings import HttpClientSettings
@@ -101,6 +101,40 @@ class ProviderHttpxInvocationTestCase(unittest.TestCase):
         self.assertGreater(error.response_bytes or 0, 0)
         self.assertEqual(error.message, "Cannot fetch reference <url>")
         self.assertNotIn("x-oss-signature", error.message)
+
+    def test_gemini_reference_connect_timeout_is_retryable(self) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": (
+                            "Cannot fetch content from the provided URL. "
+                            "Status: URL_UNREACHABLE-UNREACHABLE_CONNECT_TIMEOUT"
+                        ),
+                        "type": "upstream_error",
+                    }
+                },
+            )
+        )
+        plan = GeminiInvocationPlan(
+            api_url="https://provider.example/v1beta/models/test:generateContent",
+            api_path="/v1beta/models/test:generateContent",
+            model="test",
+            prompt="测试",
+            prepared_inputs=[],
+            request_body={"contents": []},
+        )
+
+        with httpx.Client(transport=transport) as client:
+            with self.assertRaises(ProviderError) as raised:
+                invoke_gemini(plan, "secret", client=client)
+
+        self.assertEqual(
+            raised.exception.category,
+            ErrorCategory.UPSTREAM_UNAVAILABLE,
+        )
+        self.assertTrue(raised.exception.retryable)
 
     def test_gemini_non_json_error_uses_limited_response_text(self) -> None:
         transport = httpx.MockTransport(

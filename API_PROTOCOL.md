@@ -98,6 +98,7 @@ GPT Image 2 的 aspectRatio 到 size 映射：
 - 总参考图数量上限为 `14`
 - 服务端会把参考图暂存为私有 OSS 对象；EasyRouter 接收短期签名 URL，OpenRouter 接收后端读取临时对象后生成的 Base64 Data URL
 - 同一批并发生成和服务商回退复用相同的临时参考图对象
+- EasyRouter 临时无法连接参考图地址时自动进入 OpenRouter 兜底
 - 全部模型调用结束后服务端主动删除临时对象
 
 ## 请求格式

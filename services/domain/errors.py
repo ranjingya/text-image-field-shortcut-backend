@@ -26,6 +26,12 @@ class ErrorCategory(StrEnum):
     UNKNOWN = "unknown"
 
 
+_TRANSIENT_REFERENCE_FETCH_MARKERS = (
+    "URL_UNREACHABLE",
+    "UNREACHABLE_CONNECT_TIMEOUT",
+)
+
+
 @dataclass
 class ProviderError(RuntimeError):
     provider: str
@@ -95,6 +101,36 @@ def _read_retry_after(headers: Any) -> float | None:
         return None
 
 
+def _is_transient_reference_fetch_error(
+    provider: str,
+    status_code: int,
+    error_type: str,
+    message: str,
+) -> bool:
+    """判断服务商是否临时无法连接参考图地址。
+
+    参数：
+        provider: 返回错误的服务商名称。
+        status_code: 服务商返回的 HTTP 状态码。
+        error_type: 服务商返回的细分错误类型。
+        message: 已脱敏的服务商错误摘要。
+
+    返回值：
+        EasyRouter 明确返回参考图连接不可达时为真，否则为假。
+    """
+    if (
+        provider.strip().lower() != "easyrouter"
+        or status_code != 400
+        or error_type.strip().lower() != "upstream_error"
+    ):
+        return False
+    normalized_message = message.upper()
+    return any(
+        marker in normalized_message
+        for marker in _TRANSIENT_REFERENCE_FETCH_MARKERS
+    )
+
+
 def provider_error_from_status(
     provider: str,
     status_code: int,
@@ -128,7 +164,14 @@ def provider_error_from_status(
         "image_not_found",
         "image_download_failed",
     }
-    if normalized_error_type in image_errors:
+    if _is_transient_reference_fetch_error(
+        provider,
+        status_code,
+        normalized_error_type,
+        message,
+    ):
+        category, retryable = ErrorCategory.UPSTREAM_UNAVAILABLE, True
+    elif normalized_error_type in image_errors:
         category, retryable = ErrorCategory.INVALID_ASSET, False
     elif normalized_error_type in {"content_policy_violation", "refusal"}:
         category, retryable = ErrorCategory.CONTENT_POLICY, False
