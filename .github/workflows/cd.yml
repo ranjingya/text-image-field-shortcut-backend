@@ -77,13 +77,22 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST }}
           port: ${{ secrets.SSH_PORT }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: GHCR_USERNAME,GHCR_READ_TOKEN
           script: |
             set -e
+
+            printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io \
+              --username "$GHCR_USERNAME" \
+              --password-stdin
+
             cd "${{ vars.DEPLOY_DIR }}"
             docker compose pull ${{ env.SERVICE_NAME }}
             docker compose up -d --remove-orphans ${{ env.SERVICE_NAME }}
